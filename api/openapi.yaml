@@ -1,0 +1,160 @@
+openapi: 3.1.0
+info:
+  title: Todo Backend Infrastructure API
+  version: 0.1.0
+  description: REST is reserved for health and auth infrastructure. Domain operations are available through GraphQL.
+servers:
+  - url: http://localhost:3000
+paths:
+  /health:
+    get:
+      summary: Health check
+      operationId: getHealth
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    example: ok
+  /auth/google/login:
+    get:
+      summary: Start Google OAuth login
+      operationId: googleLogin
+      responses:
+        "307":
+          description: Redirects to Google OAuth
+        "501":
+          description: Auth is not implemented yet
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /auth/callback/google:
+    get:
+      summary: Google OAuth callback
+      operationId: googleCallback
+      parameters:
+        - name: code
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "307":
+          description: Redirects to frontend after successful login
+        "501":
+          description: Auth is not implemented yet
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /auth/logout:
+    post:
+      summary: Log out current user
+      operationId: logout
+      responses:
+        "204":
+          description: Session cleared
+        "501":
+          description: Auth is not implemented yet
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /auth/me:
+    get:
+      summary: Current authenticated user
+      operationId: getMe
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /graphql:
+    post:
+      summary: GraphQL endpoint for domain operations
+      operationId: graphql
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [query]
+              properties:
+                query:
+                  type: string
+                operationName:
+                  type: string
+                  nullable: true
+                variables:
+                  type: object
+                  additionalProperties: true
+      responses:
+        "200":
+          description: GraphQL response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    additionalProperties: true
+                  errors:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
+        "401":
+          description: Not authenticated
+          content:
+            text/plain:
+              schema:
+                type: string
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: todo_session
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+    User:
+      type: object
+      required: [id, email, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        name:
+          type: string

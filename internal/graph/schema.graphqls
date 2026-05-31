@@ -1,0 +1,340 @@
+scalar Time
+
+type Epic {
+  id: ID!
+  name: String!
+  description: String
+  color: String
+  position: Int!
+  createdAt: Time!
+  updatedAt: Time!
+}
+
+type Project {
+  id: ID!
+  epicId: ID
+  name: String!
+  description: String
+  status: ProjectStatus!
+  startDate: Time
+  targetDate: Time
+  position: Int!
+  createdAt: Time!
+  updatedAt: Time!
+}
+
+type Stage {
+  id: ID!
+  projectId: ID!
+  name: String!
+  description: String
+  status: StageStatus!
+  startDate: Time
+  targetDate: Time
+  position: Int!
+  createdAt: Time!
+  updatedAt: Time!
+}
+
+type Todo {
+  id: ID!
+  projectId: ID
+  stageId: ID
+  title: String!
+  description: String
+  priority: TodoPriority!
+  status: TodoStatus!
+  labels: [Label!]!
+  startDate: Time
+  dueDate: Time
+  estimatedEffort: String
+  position: Int!
+  nextAction: Boolean!
+  milestone: Boolean!
+  recurrence: Recurrence!
+  completedAt: Time
+  createdAt: Time!
+  updatedAt: Time!
+}
+
+type Label {
+  id: ID!
+  name: String!
+  color: String
+  createdAt: Time!
+  updatedAt: Time!
+}
+
+type ProjectNote {
+  id: ID!
+  projectId: ID!
+  body: String!
+  createdAt: Time!
+  updatedAt: Time!
+}
+
+type TodoDependency {
+  todoId: ID!
+  dependsOnTodoId: ID!
+  createdAt: Time!
+}
+
+type Progress {
+  total: Int!
+  done: Int!
+  percent: Int!
+}
+
+type Dashboard {
+  openTodos: Int!
+  overdueTodos: Int!
+  nextActions: Int!
+  activeProjects: Int!
+  upcomingDeadlines: Int!
+}
+
+type AIStatusReport {
+  summary: String!
+  ready: Boolean!
+}
+
+type AIProposal {
+  id: ID!
+  parentType: AIProposalParentType!
+  parentId: ID!
+  magicText: String!
+  summary: String!
+  proposalJson: String!
+  status: AIProposalStatus!
+  createdAt: Time!
+  appliedAt: Time
+}
+
+enum AIProposalParentType {
+  EPIC
+  PROJECT
+}
+
+enum AIProposalStatus {
+  DRAFT
+  APPLIED
+}
+
+enum ProjectStatus {
+  ACTIVE
+  PAUSED
+  DONE
+  ARCHIVED
+}
+
+enum StageStatus {
+  PLANNED
+  IN_PROGRESS
+  DONE
+}
+
+enum TodoPriority {
+  LOW
+  NORMAL
+  HIGH
+  CRITICAL
+}
+
+enum TodoStatus {
+  OPEN
+  IN_PROGRESS
+  DONE
+  BLOCKED
+}
+
+enum Recurrence {
+  NONE
+  DAILY
+  WEEKLY
+  MONTHLY
+  YEARLY
+}
+
+input TodoFilter {
+  projectId: ID
+  stageId: ID
+  labelId: ID
+  priority: TodoPriority
+  status: TodoStatus
+}
+
+input CreateEpicInput {
+  name: String!
+  description: String
+  color: String
+  position: Int
+}
+
+input UpdateEpicInput {
+  name: String
+  description: String
+  color: String
+  position: Int
+}
+
+input CreateProjectInput {
+  epicId: ID
+  name: String!
+  description: String
+  status: ProjectStatus = ACTIVE
+  startDate: Time
+  targetDate: Time
+  position: Int
+}
+
+input UpdateProjectInput {
+  epicId: ID
+  name: String
+  description: String
+  status: ProjectStatus
+  startDate: Time
+  targetDate: Time
+  position: Int
+}
+
+input CreateStageInput {
+  projectId: ID!
+  name: String!
+  description: String
+  status: StageStatus = PLANNED
+  startDate: Time
+  targetDate: Time
+  position: Int
+}
+
+input UpdateStageInput {
+  name: String
+  description: String
+  status: StageStatus
+  startDate: Time
+  targetDate: Time
+  position: Int
+}
+
+input CreateTodoInput {
+  projectId: ID
+  stageId: ID
+  title: String!
+  description: String
+  priority: TodoPriority = NORMAL
+  status: TodoStatus = OPEN
+  startDate: Time
+  dueDate: Time
+  estimatedEffort: String
+  position: Int
+  nextAction: Boolean = false
+  milestone: Boolean = false
+  recurrence: Recurrence = NONE
+}
+
+input UpdateTodoInput {
+  projectId: ID
+  stageId: ID
+  title: String
+  description: String
+  priority: TodoPriority
+  status: TodoStatus
+  startDate: Time
+  dueDate: Time
+  estimatedEffort: String
+  position: Int
+  nextAction: Boolean
+  milestone: Boolean
+  recurrence: Recurrence
+}
+
+input CreateLabelInput {
+  name: String!
+  color: String
+}
+
+input UpdateLabelInput {
+  name: String
+  color: String
+}
+
+input CreateProjectNoteInput {
+  projectId: ID!
+  body: String!
+}
+
+input UpdateProjectNoteInput {
+  body: String
+}
+
+input GenerateAIProposalInput {
+  parentType: AIProposalParentType!
+  parentId: ID!
+  magicText: String!
+}
+
+input AIProposalFilter {
+  parentType: AIProposalParentType
+  parentId: ID
+}
+
+type Query {
+  epics: [Epic!]!
+  epic(id: ID!): Epic
+  projects(epicId: ID): [Project!]!
+  project(id: ID!): Project
+  stages(projectId: ID!): [Stage!]!
+  stage(id: ID!): Stage
+  todos(filter: TodoFilter): [Todo!]!
+  todo(id: ID!): Todo
+  inbox: [Todo!]!
+  openTodos: [Todo!]!
+  overdueTodos: [Todo!]!
+  nextActions: [Todo!]!
+  doneTodos: [Todo!]!
+  labels: [Label!]!
+  projectNotes(projectId: ID!): [ProjectNote!]!
+  todoDependencies(todoId: ID!): [TodoDependency!]!
+  dashboard: Dashboard!
+  projectProgress(projectId: ID!): Progress!
+  stageProgress(stageId: ID!): Progress!
+  aiProposal(id: ID!): AIProposal
+  aiProposals(filter: AIProposalFilter): [AIProposal!]!
+  aiStatusReport(projectId: ID!): AIStatusReport!
+}
+
+type Mutation {
+  createEpic(input: CreateEpicInput!): Epic!
+  updateEpic(id: ID!, input: UpdateEpicInput!): Epic!
+  deleteEpic(id: ID!): Boolean!
+
+  createProject(input: CreateProjectInput!): Project!
+  updateProject(id: ID!, input: UpdateProjectInput!): Project!
+  deleteProject(id: ID!): Boolean!
+
+  createStage(input: CreateStageInput!): Stage!
+  updateStage(id: ID!, input: UpdateStageInput!): Stage!
+  deleteStage(id: ID!): Boolean!
+
+  createTodo(input: CreateTodoInput!): Todo!
+  updateTodo(id: ID!, input: UpdateTodoInput!): Todo!
+  deleteTodo(id: ID!): Boolean!
+  markTodoDone(id: ID!): Todo!
+  setTodoNextAction(id: ID!, nextAction: Boolean!): Todo!
+
+  createLabel(input: CreateLabelInput!): Label!
+  updateLabel(id: ID!, input: UpdateLabelInput!): Label!
+  deleteLabel(id: ID!): Boolean!
+  addTodoLabel(todoId: ID!, labelId: ID!): Todo!
+  removeTodoLabel(todoId: ID!, labelId: ID!): Todo!
+
+  createProjectNote(input: CreateProjectNoteInput!): ProjectNote!
+  updateProjectNote(id: ID!, input: UpdateProjectNoteInput!): ProjectNote!
+  deleteProjectNote(id: ID!): Boolean!
+
+  addTodoDependency(todoId: ID!, dependsOnTodoId: ID!): Todo!
+  removeTodoDependency(todoId: ID!, dependsOnTodoId: ID!): Todo!
+
+  generateAIProposal(input: GenerateAIProposalInput!): AIProposal!
+  acceptAIProposal(id: ID!): AIProposal!
+}

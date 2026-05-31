@@ -1,0 +1,26 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: todo_backend
+      POSTGRES_USER: todo
+      POSTGRES_PASSWORD: todo
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  postgres-test:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: todo_backend_test
+      POSTGRES_USER: todo
+      POSTGRES_PASSWORD: todo
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres-test-data:/var/lib/postgresql/data
+
+volumes:
+  postgres-data:
+  postgres-test-data:
