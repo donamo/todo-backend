@@ -1,3 +1,6 @@
 .env
 .cache/
 bin/
+AGENTS.md
+ARCHITECTURE.md
+CLAUDE.md

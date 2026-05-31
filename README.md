@@ -83,3 +83,13 @@ go run github.com/99designs/gqlgen generate
 
 - `api/schema.graphql`
 - `api/openapi.yaml`
+
+## Docker Release
+
+Pushing a tag like `v1.0.0` builds and pushes:
+
+```text
+ghcr.io/<owner>/<repo>:v1.0.0
+```
+
+The GitHub Actions workflow intentionally skips tests and multi-arch builds to keep CI runtime low.
