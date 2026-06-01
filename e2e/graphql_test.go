@@ -296,6 +296,108 @@ func TestAIProposalWorkflowWithMockOpenAI(t *testing.T) {
 	}
 }
 
+func TestAIProposalEpicParentSingleProjectFallback(t *testing.T) {
+	mockOpenAI := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		plan := map[string]any{
+			"summary": "Egy új projekt stage-dzsel és todo-val.",
+			"projects": []any{
+				map[string]any{
+					"action": "CREATE",
+					"tempId": "project-1",
+					"name":   "Nappali",
+				},
+			},
+			"stages": []any{
+				map[string]any{
+					"action": "CREATE",
+					"tempId": "stage-1",
+					"name":   "Előkészítés",
+				},
+			},
+			"todos": []any{
+				map[string]any{
+					"action":      "CREATE",
+					"stageTempId": "stage-1",
+					"title":       "Takarás",
+				},
+			},
+		}
+		text, err := json.Marshal(plan)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.NewEncoder(w).Encode(map[string]any{
+			"output": []any{
+				map[string]any{
+					"content": []any{
+						map[string]any{"type": "output_text", "text": string(text)},
+					},
+				},
+			},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}))
+	defer mockOpenAI.Close()
+
+	t.Setenv("OPENAI_API_KEY", "test-openai-key")
+	t.Setenv("OPENAI_BASE_URL", mockOpenAI.URL)
+	t.Setenv("OPENAI_MODEL", "test-model")
+
+	s := NewSuite(t)
+	var createEpic gqlResponse[struct {
+		CreateEpic struct {
+			ID string `json:"id"`
+		} `json:"createEpic"`
+	}]
+	s.GQL(t, `
+		mutation CreateEpic($input: CreateEpicInput!) {
+			createEpic(input: $input) { id }
+		}
+	`, map[string]any{"input": map[string]any{"name": "AI Epic"}}, &createEpic)
+	if len(createEpic.Errors) > 0 {
+		t.Fatalf("createEpic errors: %+v", createEpic.Errors)
+	}
+
+	var generate gqlResponse[struct {
+		GenerateAIProposal struct {
+			ID string `json:"id"`
+		} `json:"generateAIProposal"`
+	}]
+	s.GQL(t, `
+		mutation Generate($input: GenerateAIProposalInput!) {
+			generateAIProposal(input: $input) { id }
+		}
+	`, map[string]any{
+		"input": map[string]any{
+			"parentType": "EPIC",
+			"parentId":   createEpic.Data.CreateEpic.ID,
+			"magicText":  "Készíts nappali felújítás projektet",
+		},
+	}, &generate)
+	if len(generate.Errors) > 0 {
+		t.Fatalf("generateAIProposal errors: %+v", generate.Errors)
+	}
+
+	var accept gqlResponse[struct {
+		AcceptAIProposal struct {
+			Status string `json:"status"`
+		} `json:"acceptAIProposal"`
+	}]
+	s.GQL(t, `
+		mutation Accept($id: ID!) {
+			acceptAIProposal(id: $id) { status }
+		}
+	`, map[string]any{"id": generate.Data.GenerateAIProposal.ID}, &accept)
+	if len(accept.Errors) > 0 {
+		t.Fatalf("acceptAIProposal errors: %+v", accept.Errors)
+	}
+	if accept.Data.AcceptAIProposal.Status != "APPLIED" {
+		t.Fatalf("status = %q", accept.Data.AcceptAIProposal.Status)
+	}
+}
+
 func TestDeleteHierarchyCanKeepChildren(t *testing.T) {
 	s := NewSuite(t)
 

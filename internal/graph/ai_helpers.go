@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -89,11 +90,18 @@ func childrenForProjects(ctx context.Context, q *dbsqlc.Queries, userID uuid.UUI
 func (r *Resolver) applyAIPlan(ctx context.Context, q *dbsqlc.Queries, userID uuid.UUID, proposal dbsqlc.AiProposal, plan ai.Plan) error {
 	projectIDs := map[string]uuid.UUID{}
 	stageIDs := map[string]uuid.UUID{}
+	slog.Debug("ai proposal apply plan",
+		"proposalID", proposal.ID,
+		"parentType", proposal.ParentType,
+		"parentID", proposal.ParentID,
+		"plan", jsonForGraphLog(plan),
+	)
 
-	for _, change := range plan.Projects {
+	for index, change := range plan.Projects {
 		if change.Action == "UPDATE" {
 			id, err := parseUUID(change.ID)
 			if err != nil {
+				slog.Error("ai proposal project update id parse failed", "proposalID", proposal.ID, "index", index, "change", jsonForGraphLog(change), "err", err)
 				return err
 			}
 			_, err = q.UpdateProject(ctx, dbsqlc.UpdateProjectParams{
@@ -107,6 +115,7 @@ func (r *Resolver) applyAIPlan(ctx context.Context, q *dbsqlc.Queries, userID uu
 				Position:    nullInt32(change.Position),
 			})
 			if err != nil {
+				slog.Error("ai proposal project update failed", "proposalID", proposal.ID, "index", index, "projectID", id, "change", jsonForGraphLog(change), "err", err)
 				return err
 			}
 			continue
@@ -127,17 +136,20 @@ func (r *Resolver) applyAIPlan(ctx context.Context, q *dbsqlc.Queries, userID uu
 			Position:    optionalInt(change.Position),
 		})
 		if err != nil {
+			slog.Error("ai proposal project create failed", "proposalID", proposal.ID, "index", index, "change", jsonForGraphLog(change), "err", err)
 			return err
 		}
 		if change.TempID != "" {
 			projectIDs[change.TempID] = project.ID
 		}
+		slog.Debug("ai proposal project created", "proposalID", proposal.ID, "index", index, "projectID", project.ID, "tempID", change.TempID)
 	}
 
-	for _, change := range plan.Stages {
+	for index, change := range plan.Stages {
 		if change.Action == "UPDATE" {
 			id, err := parseUUID(change.ID)
 			if err != nil {
+				slog.Error("ai proposal stage update id parse failed", "proposalID", proposal.ID, "index", index, "change", jsonForGraphLog(change), "err", err)
 				return err
 			}
 			_, err = q.UpdateStage(ctx, dbsqlc.UpdateStageParams{
@@ -151,6 +163,7 @@ func (r *Resolver) applyAIPlan(ctx context.Context, q *dbsqlc.Queries, userID uu
 				Position:    nullInt32(change.Position),
 			})
 			if err != nil {
+				slog.Error("ai proposal stage update failed", "proposalID", proposal.ID, "index", index, "stageID", id, "change", jsonForGraphLog(change), "err", err)
 				return err
 			}
 			continue
@@ -158,9 +171,11 @@ func (r *Resolver) applyAIPlan(ctx context.Context, q *dbsqlc.Queries, userID uu
 
 		projectID, err := stageProjectID(change, proposal, projectIDs)
 		if err != nil {
+			slog.Error("ai proposal stage project resolve failed", "proposalID", proposal.ID, "index", index, "change", jsonForGraphLog(change), "projectTempIDs", len(projectIDs), "err", err)
 			return err
 		}
 		if err := validateAIProject(ctx, q, userID, projectID); err != nil {
+			slog.Error("ai proposal stage project validation failed", "proposalID", proposal.ID, "index", index, "projectID", projectID, "change", jsonForGraphLog(change), "err", err)
 			return err
 		}
 		stage, err := q.CreateStage(ctx, dbsqlc.CreateStageParams{
@@ -174,26 +189,31 @@ func (r *Resolver) applyAIPlan(ctx context.Context, q *dbsqlc.Queries, userID uu
 			Position:    optionalInt(change.Position),
 		})
 		if err != nil {
+			slog.Error("ai proposal stage create failed", "proposalID", proposal.ID, "index", index, "projectID", projectID, "change", jsonForGraphLog(change), "err", err)
 			return err
 		}
 		if change.TempID != "" {
 			stageIDs[change.TempID] = stage.ID
 		}
+		slog.Debug("ai proposal stage created", "proposalID", proposal.ID, "index", index, "stageID", stage.ID, "projectID", projectID, "tempID", change.TempID)
 	}
 
-	for _, change := range plan.Todos {
+	for index, change := range plan.Todos {
 		if change.Action == "UPDATE" {
 			id, err := parseUUID(change.ID)
 			if err != nil {
+				slog.Error("ai proposal todo update id parse failed", "proposalID", proposal.ID, "index", index, "change", jsonForGraphLog(change), "err", err)
 				return err
 			}
 			if boolPtrTrue(change.NextAction) {
 				todo, err := q.GetTodo(ctx, dbsqlc.GetTodoParams{ID: id, UserID: userID})
 				if err != nil {
+					slog.Error("ai proposal todo lookup failed", "proposalID", proposal.ID, "index", index, "todoID", id, "change", jsonForGraphLog(change), "err", err)
 					return err
 				}
 				if todo.ProjectID.Valid {
 					if err := q.ClearProjectNextActions(ctx, dbsqlc.ClearProjectNextActionsParams{UserID: userID, ProjectID: todo.ProjectID, ID: id}); err != nil {
+						slog.Error("ai proposal todo next action clear failed", "proposalID", proposal.ID, "index", index, "todoID", id, "projectID", todo.ProjectID.UUID, "err", err)
 						return err
 					}
 				}
@@ -214,6 +234,7 @@ func (r *Resolver) applyAIPlan(ctx context.Context, q *dbsqlc.Queries, userID uu
 				Recurrence:      nullableStringPtr(change.Recurrence),
 			})
 			if err != nil {
+				slog.Error("ai proposal todo update failed", "proposalID", proposal.ID, "index", index, "todoID", id, "change", jsonForGraphLog(change), "err", err)
 				return err
 			}
 			continue
@@ -221,24 +242,29 @@ func (r *Resolver) applyAIPlan(ctx context.Context, q *dbsqlc.Queries, userID uu
 
 		projectID, err := todoProjectID(change, proposal, projectIDs)
 		if err != nil {
+			slog.Error("ai proposal todo project resolve failed", "proposalID", proposal.ID, "index", index, "change", jsonForGraphLog(change), "projectTempIDs", len(projectIDs), "err", err)
 			return err
 		}
 		stageID, err := todoStageID(change, stageIDs)
 		if err != nil {
+			slog.Error("ai proposal todo stage resolve failed", "proposalID", proposal.ID, "index", index, "change", jsonForGraphLog(change), "stageTempIDs", len(stageIDs), "err", err)
 			return err
 		}
 		if err := validateAIProject(ctx, q, userID, projectID); err != nil {
+			slog.Error("ai proposal todo project validation failed", "proposalID", proposal.ID, "index", index, "projectID", projectID, "change", jsonForGraphLog(change), "err", err)
 			return err
 		}
 		if err := validateAIStage(ctx, q, userID, stageID, projectID); err != nil {
+			slog.Error("ai proposal todo stage validation failed", "proposalID", proposal.ID, "index", index, "projectID", projectID, "stageID", stageID.UUID, "stageValid", stageID.Valid, "change", jsonForGraphLog(change), "err", err)
 			return err
 		}
 		if boolPtrTrue(change.NextAction) {
 			if err := q.ClearProjectNextActions(ctx, dbsqlc.ClearProjectNextActionsParams{UserID: userID, ProjectID: uuid.NullUUID{UUID: projectID, Valid: true}, ID: uuid.Nil}); err != nil {
+				slog.Error("ai proposal todo next action clear failed", "proposalID", proposal.ID, "index", index, "projectID", projectID, "change", jsonForGraphLog(change), "err", err)
 				return err
 			}
 		}
-		_, err = q.CreateTodo(ctx, dbsqlc.CreateTodoParams{
+		todo, err := q.CreateTodo(ctx, dbsqlc.CreateTodoParams{
 			UserID:          userID,
 			ProjectID:       uuid.NullUUID{UUID: projectID, Valid: true},
 			StageID:         stageID,
@@ -255,8 +281,10 @@ func (r *Resolver) applyAIPlan(ctx context.Context, q *dbsqlc.Queries, userID uu
 			Recurrence:      optionalStringPtr(change.Recurrence),
 		})
 		if err != nil {
+			slog.Error("ai proposal todo create failed", "proposalID", proposal.ID, "index", index, "projectID", projectID, "stageID", stageID.UUID, "stageValid", stageID.Valid, "change", jsonForGraphLog(change), "err", err)
 			return err
 		}
+		slog.Debug("ai proposal todo created", "proposalID", proposal.ID, "index", index, "todoID", todo.ID, "projectID", projectID, "stageID", stageID.UUID, "stageValid", stageID.Valid)
 	}
 
 	return nil
@@ -299,6 +327,11 @@ func stageProjectID(change ai.StageChange, proposal dbsqlc.AiProposal, projectID
 	if change.ProjectID != "" {
 		return parseUUID(change.ProjectID)
 	}
+	if proposal.ParentType == model.AIProposalParentTypeEpic.String() && len(projectIDs) == 1 {
+		for _, id := range projectIDs {
+			return id, nil
+		}
+	}
 	return uuid.UUID{}, fmt.Errorf("stage project is missing")
 }
 
@@ -314,6 +347,11 @@ func todoProjectID(change ai.TodoChange, proposal dbsqlc.AiProposal, projectIDs 
 	}
 	if change.ProjectID != "" {
 		return parseUUID(change.ProjectID)
+	}
+	if proposal.ParentType == model.AIProposalParentTypeEpic.String() && len(projectIDs) == 1 {
+		for _, id := range projectIDs {
+			return id, nil
+		}
 	}
 	return uuid.UUID{}, fmt.Errorf("todo project is missing")
 }

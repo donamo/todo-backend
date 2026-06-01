@@ -10,6 +10,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"log/slog"
+	"time"
 
 	"github.com/donamo/todo-backend/internal/ai"
 	dbsqlc "github.com/donamo/todo-backend/internal/db"
@@ -652,8 +654,11 @@ func (r *mutationResolver) AcceptAIProposal(ctx context.Context, id string) (*mo
 	if err != nil {
 		return nil, err
 	}
+	started := time.Now()
+	slog.Info("ai proposal accept started", "proposalID", proposalID, "userID", userID)
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
+		slog.Error("ai proposal accept transaction begin failed", "proposalID", proposalID, "err", err)
 		return nil, err
 	}
 	defer tx.Rollback()
@@ -661,25 +666,47 @@ func (r *mutationResolver) AcceptAIProposal(ctx context.Context, id string) (*mo
 	tq := q.WithTx(tx)
 	proposal, err := tq.GetAIProposal(ctx, dbsqlc.GetAIProposalParams{ID: proposalID, UserID: userID})
 	if err != nil {
+		slog.Error("ai proposal load failed", "proposalID", proposalID, "userID", userID, "err", err)
 		return nil, err
 	}
 	if proposal.Status != model.AIProposalStatusDraft.String() {
+		slog.Error("ai proposal accept rejected", "proposalID", proposalID, "status", proposal.Status, "err", "not draft")
 		return nil, errors.New("ai proposal is not draft")
 	}
+	slog.Debug("ai proposal stored content",
+		"proposalID", proposalID,
+		"parentType", proposal.ParentType,
+		"parentID", proposal.ParentID,
+		"magicText", truncateGraphLogValue(proposal.MagicText),
+		"proposalJson", truncateGraphLogValue(string(proposal.ProposalJson)),
+	)
 	var plan ai.Plan
 	if err := json.Unmarshal(proposal.ProposalJson, &plan); err != nil {
+		slog.Error("ai proposal stored json decode failed", "proposalID", proposalID, "err", err)
 		return nil, err
 	}
+	slog.Info("ai proposal apply started",
+		"proposalID", proposalID,
+		"parentType", proposal.ParentType,
+		"parentID", proposal.ParentID,
+		"projectChanges", len(plan.Projects),
+		"stageChanges", len(plan.Stages),
+		"todoChanges", len(plan.Todos),
+	)
 	if err := r.applyAIPlan(ctx, tq, userID, proposal, plan); err != nil {
+		slog.Error("ai proposal apply failed", "proposalID", proposalID, "duration", time.Since(started).String(), "err", err)
 		return nil, err
 	}
 	applied, err := tq.MarkAIProposalApplied(ctx, dbsqlc.MarkAIProposalAppliedParams{ID: proposalID, UserID: userID})
 	if err != nil {
+		slog.Error("ai proposal mark applied failed", "proposalID", proposalID, "err", err)
 		return nil, err
 	}
 	if err := tx.Commit(); err != nil {
+		slog.Error("ai proposal accept commit failed", "proposalID", proposalID, "err", err)
 		return nil, err
 	}
+	slog.Info("ai proposal accept completed", "proposalID", proposalID, "duration", time.Since(started).String())
 	return toAIProposal(applied), nil
 }
 
