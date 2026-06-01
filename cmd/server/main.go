@@ -23,8 +23,8 @@ import (
 func main() {
 	logging.Init()
 
-	if err := godotenv.Load(); err != nil {
-		slog.Warn("no .env file, using environment variables", "err", err)
+	if err := godotenv.Load(); err != nil && !os.IsNotExist(err) {
+		slog.Warn("load .env failed, using environment variables", "err", err)
 	}
 
 	cfg, err := config.Load()

@@ -26,10 +26,10 @@ func NewResolver(db *sql.DB) *Resolver {
 	if db != nil {
 		r.queries = dbsqlc.New(db)
 	}
-	timeout, err := config.Duration("OPENAI_TIMEOUT", 30*time.Second)
+	timeout, err := config.Duration("OPENAI_TIMEOUT", 90*time.Second)
 	if err != nil {
-		slog.Error("invalid duration env, using default", "name", "OPENAI_TIMEOUT", "default", "30s", "err", err)
-		timeout = 30 * time.Second
+		slog.Error("invalid duration env, using default", "name", "OPENAI_TIMEOUT", "default", "90s", "err", err)
+		timeout = 90 * time.Second
 	}
 	r.ai = ai.NewClient(ai.Config{
 		APIKey:    config.String("OPENAI_API_KEY", ""),

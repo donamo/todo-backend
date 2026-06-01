@@ -69,7 +69,7 @@ GraphQL domain operations require an authenticated and approved Google session. 
 | `OPENAI_PROJECT_ID` | none | Optional OpenAI project ID sent as the `OpenAI-Project` header |
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1` | OpenAI-compatible API base URL |
 | `OPENAI_MODEL` | `gpt-5.4-mini` | Model used for structured magic-text proposals |
-| `OPENAI_TIMEOUT` | `30s` | Timeout for OpenAI proposal generation |
+| `OPENAI_TIMEOUT` | `90s` | Timeout for OpenAI proposal generation |
 
 ## Codegen
 

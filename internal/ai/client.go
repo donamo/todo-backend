@@ -97,7 +97,7 @@ func NewClient(cfg Config) *Client {
 		cfg.Model = "gpt-5.4-mini"
 	}
 	if cfg.Timeout == 0 {
-		cfg.Timeout = 30 * time.Second
+		cfg.Timeout = 90 * time.Second
 	}
 	return &Client{
 		apiKey:    cfg.APIKey,
