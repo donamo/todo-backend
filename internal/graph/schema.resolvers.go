@@ -614,20 +614,36 @@ func (r *mutationResolver) GenerateAIProposal(ctx context.Context, input model.G
 	if err != nil {
 		return nil, err
 	}
+	slog.Info("generateAIProposal request received",
+		"userID", userID,
+		"parentType", input.ParentType.String(),
+		"parentID", input.ParentID,
+		"magicTextChars", len([]rune(input.MagicText)),
+	)
+	slog.Debug("generateAIProposal request content",
+		"userID", userID,
+		"parentType", input.ParentType.String(),
+		"parentID", input.ParentID,
+		"magicText", truncateGraphLogValue(input.MagicText),
+	)
 	parentID, err := parseUUID(input.ParentID)
 	if err != nil {
+		slog.Error("generateAIProposal parent id parse failed", "userID", userID, "parentType", input.ParentType.String(), "parentID", input.ParentID, "err", err)
 		return nil, err
 	}
 	snapshot, err := r.aiContext(ctx, q, userID, input.ParentType.String(), parentID)
 	if err != nil {
+		slog.Error("generateAIProposal context load failed", "userID", userID, "parentType", input.ParentType.String(), "parentID", parentID, "err", err)
 		return nil, err
 	}
 	plan, err := r.ai.GeneratePlan(ctx, input.MagicText, snapshot)
 	if err != nil {
+		slog.Error("generateAIProposal openai plan failed", "userID", userID, "parentType", input.ParentType.String(), "parentID", parentID, "err", err)
 		return nil, err
 	}
 	proposalJSON, err := json.Marshal(plan)
 	if err != nil {
+		slog.Error("generateAIProposal proposal encode failed", "userID", userID, "parentType", input.ParentType.String(), "parentID", parentID, "err", err)
 		return nil, err
 	}
 	proposal, err := q.CreateAIProposal(ctx, dbsqlc.CreateAIProposalParams{
@@ -639,8 +655,18 @@ func (r *mutationResolver) GenerateAIProposal(ctx context.Context, input model.G
 		ProposalJson: proposalJSON,
 	})
 	if err != nil {
+		slog.Error("generateAIProposal proposal save failed", "userID", userID, "parentType", input.ParentType.String(), "parentID", parentID, "err", err)
 		return nil, err
 	}
+	slog.Info("generateAIProposal proposal saved",
+		"userID", userID,
+		"proposalID", proposal.ID,
+		"parentType", proposal.ParentType,
+		"parentID", proposal.ParentID,
+		"projectChanges", plan.ProjectCount(),
+		"stageChanges", plan.StageCount(),
+		"todoChanges", plan.TodoCount(),
+	)
 	return toAIProposal(proposal), nil
 }
 
@@ -685,13 +711,22 @@ func (r *mutationResolver) AcceptAIProposal(ctx context.Context, id string) (*mo
 		slog.Error("ai proposal stored json decode failed", "proposalID", proposalID, "err", err)
 		return nil, err
 	}
+	appContext, err := r.aiContext(ctx, tq, userID, proposal.ParentType, proposal.ParentID)
+	if err != nil {
+		slog.Error("ai proposal context load failed", "proposalID", proposalID, "parentType", proposal.ParentType, "parentID", proposal.ParentID, "err", err)
+		return nil, err
+	}
+	if err := ai.ValidatePlan(plan, appContext); err != nil {
+		slog.Error("ai proposal stored validation failed", "proposalID", proposalID, "parentType", proposal.ParentType, "parentID", proposal.ParentID, "err", err, "plan", jsonForGraphLog(plan))
+		return nil, err
+	}
 	slog.Info("ai proposal apply started",
 		"proposalID", proposalID,
 		"parentType", proposal.ParentType,
 		"parentID", proposal.ParentID,
-		"projectChanges", len(plan.Projects),
-		"stageChanges", len(plan.Stages),
-		"todoChanges", len(plan.Todos),
+		"projectChanges", plan.ProjectCount(),
+		"stageChanges", plan.StageCount(),
+		"todoChanges", plan.TodoCount(),
 	)
 	if err := r.applyAIPlan(ctx, tq, userID, proposal, plan); err != nil {
 		slog.Error("ai proposal apply failed", "proposalID", proposalID, "duration", time.Since(started).String(), "err", err)

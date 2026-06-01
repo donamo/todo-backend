@@ -129,25 +129,17 @@ func TestAIProposalWorkflowWithMockOpenAI(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		plan := map[string]any{
-			"summary":  "Stage és todo javaslat a magic text alapján.",
-			"projects": []any{},
+			"summary": "Stage és todo javaslat a magic text alapján.",
 			"stages": []any{
 				map[string]any{
-					"action":    "CREATE",
-					"projectId": "b1b7f2c6-4cf3-46cb-9d1a-3a2b4d2c9a11",
-					"tempId":    "stage-1",
-					"name":      "Tervezés",
-				},
-			},
-			"todos": []any{
-				map[string]any{
-					"action":      "CREATE",
-					"projectId":   "b1b7f2c6-4cf3-46cb-9d1a-3a2b4d2c9a11",
-					"stageId":     "b1b7f2c6-4cf3-46cb-9d1a-3a2b4d2c9a11",
-					"stageTempId": "stage-1",
-					"title":       "Specifikáció pontosítása",
-					"priority":    "HIGH",
-					"nextAction":  true,
+					"name": "Tervezés",
+					"todos": []any{
+						map[string]any{
+							"name":       "Specifikáció pontosítása",
+							"priority":   "HIGH",
+							"nextAction": true,
+						},
+					},
 				},
 			},
 		}
@@ -296,28 +288,17 @@ func TestAIProposalWorkflowWithMockOpenAI(t *testing.T) {
 	}
 }
 
-func TestAIProposalEpicParentProjectlessStages(t *testing.T) {
+func TestAIProposalRejectsInvalidEpicProjectReferences(t *testing.T) {
+	const hallucinatedProjectID = "8014d0e9-757c-433f-8348-c96e8cf0daa9"
 	mockOpenAI := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		plan := map[string]any{
-			"summary":  "Project nélküli stage és todo javaslat.",
-			"projects": []any{},
-			"stages": []any{
+			"summary": "Nem contextbeli project módosítása.",
+			"projects": []any{
 				map[string]any{
-					"action":        "CREATE",
-					"projectId":     "none",
-					"projectTempId": "none",
-					"tempId":        "stage-1",
-					"name":          "Előkészítés",
-				},
-			},
-			"todos": []any{
-				map[string]any{
-					"action":        "CREATE",
-					"projectId":     "none",
-					"projectTempId": "none",
-					"stageTempId":   "stage-1",
-					"title":         "Takarás",
+					"id":     hallucinatedProjectID,
+					"name":   "Hibás project",
+					"stages": []any{},
 				},
 			},
 		}
@@ -375,25 +356,9 @@ func TestAIProposalEpicParentProjectlessStages(t *testing.T) {
 		},
 	}, &generate)
 	if len(generate.Errors) > 0 {
-		t.Fatalf("generateAIProposal errors: %+v", generate.Errors)
+		return
 	}
-
-	var accept gqlResponse[struct {
-		AcceptAIProposal struct {
-			Status string `json:"status"`
-		} `json:"acceptAIProposal"`
-	}]
-	s.GQL(t, `
-		mutation Accept($id: ID!) {
-			acceptAIProposal(id: $id) { status }
-		}
-	`, map[string]any{"id": generate.Data.GenerateAIProposal.ID}, &accept)
-	if len(accept.Errors) > 0 {
-		t.Fatalf("acceptAIProposal errors: %+v", accept.Errors)
-	}
-	if accept.Data.AcceptAIProposal.Status != "APPLIED" {
-		t.Fatalf("status = %q", accept.Data.AcceptAIProposal.Status)
-	}
+	t.Fatal("expected generateAIProposal to reject invalid project references")
 }
 
 func TestDeleteHierarchyCanKeepChildren(t *testing.T) {

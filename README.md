@@ -51,7 +51,7 @@ Implemented through GraphQL:
   - `deleteEpic(id, keepChildren: true)` keeps projects with `epicId: null`
   - `deleteProject(id, keepChildren: true)` keeps stages/todos with `projectId: null`
   - `deleteStage(id, keepChildren: true)` keeps todos with `stageId: null`
-- AI magic text proposal generation and explicit proposal acceptance
+- AI magic text proposal generation with strict structured output validation and explicit proposal acceptance
 
 `aiStatusReport` is available as an explicit stub and returns `ready: false` until AI provider configuration is added.
 
@@ -107,3 +107,11 @@ The GitHub Actions workflow intentionally skips tests and multi-arch builds to k
 OpenAI proposal calls log lifecycle events at `INFO` level: model, parent, context counts, duration, and proposal change counts.
 
 The magic text, compact parent context, and AI response are logged at `DEBUG` level with a 4000 character limit per field. Set `LOG_LEVEL=DEBUG` when you need to inspect request and response content.
+
+AI proposals are rejected before saving or applying if they reference projects, stages, or todos outside the provided parent context or miss required names.
+
+AI proposal JSON follows the hierarchy instead of using temp references:
+
+- EPIC parent response: `projects -> stages -> todos`
+- PROJECT parent response: `stages -> todos`
+- Nodes with `id` update existing items from the provided context; nodes without `id` create new items.
