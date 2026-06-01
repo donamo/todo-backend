@@ -296,30 +296,28 @@ func TestAIProposalWorkflowWithMockOpenAI(t *testing.T) {
 	}
 }
 
-func TestAIProposalEpicParentSingleProjectFallback(t *testing.T) {
+func TestAIProposalEpicParentProjectlessStages(t *testing.T) {
 	mockOpenAI := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		plan := map[string]any{
-			"summary": "Egy új projekt stage-dzsel és todo-val.",
-			"projects": []any{
-				map[string]any{
-					"action": "CREATE",
-					"tempId": "project-1",
-					"name":   "Nappali",
-				},
-			},
+			"summary":  "Project nélküli stage és todo javaslat.",
+			"projects": []any{},
 			"stages": []any{
 				map[string]any{
-					"action": "CREATE",
-					"tempId": "stage-1",
-					"name":   "Előkészítés",
+					"action":        "CREATE",
+					"projectId":     "none",
+					"projectTempId": "none",
+					"tempId":        "stage-1",
+					"name":          "Előkészítés",
 				},
 			},
 			"todos": []any{
 				map[string]any{
-					"action":      "CREATE",
-					"stageTempId": "stage-1",
-					"title":       "Takarás",
+					"action":        "CREATE",
+					"projectId":     "none",
+					"projectTempId": "none",
+					"stageTempId":   "stage-1",
+					"title":         "Takarás",
 				},
 			},
 		}
