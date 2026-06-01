@@ -6,10 +6,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
+	"reflect"
 	"strings"
 	"time"
 )
+
+const logPayloadLimit = 4000
 
 type Client struct {
 	apiKey    string
@@ -112,12 +116,28 @@ func (c *Client) GeneratePlan(ctx context.Context, magicText string, appContext 
 	if c.apiKey == "" {
 		return Plan{}, fmt.Errorf("OPENAI_API_KEY is required")
 	}
+	started := time.Now()
+	slog.Info("openai proposal request started",
+		"model", c.model,
+		"baseURL", c.baseURL,
+		"parentType", appContext.ParentType,
+		"parentID", appContext.ParentID,
+		"projectCount", collectionLen(appContext.Projects),
+		"stageCount", collectionLen(appContext.Stages),
+		"todoCount", collectionLen(appContext.Todos),
+		"magicTextChars", len([]rune(magicText)),
+	)
+	slog.Debug("openai proposal request content",
+		"magicText", truncateLogValue(magicText),
+		"context", jsonForLog(appContext),
+	)
 
 	input, err := json.Marshal(map[string]any{
 		"magicText": magicText,
 		"context":   appContext,
 	})
 	if err != nil {
+		slog.Error("openai proposal input encode failed", "err", err)
 		return Plan{}, err
 	}
 
@@ -144,11 +164,13 @@ func (c *Client) GeneratePlan(ctx context.Context, magicText string, appContext 
 		},
 	})
 	if err != nil {
+		slog.Error("openai proposal request encode failed", "err", err)
 		return Plan{}, err
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/responses", bytes.NewReader(body))
 	if err != nil {
+		slog.Error("openai proposal request create failed", "err", err)
 		return Plan{}, err
 	}
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
@@ -159,30 +181,91 @@ func (c *Client) GeneratePlan(ctx context.Context, magicText string, appContext 
 
 	resp, err := c.http.Do(req)
 	if err != nil {
+		slog.Error("openai proposal request failed", "model", c.model, "duration", time.Since(started).String(), "err", err)
 		return Plan{}, err
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
+		slog.Error("openai proposal response read failed", "status", resp.StatusCode, "duration", time.Since(started).String(), "err", err)
 		return Plan{}, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return Plan{}, fmt.Errorf("openai response status %d: %s", resp.StatusCode, string(respBody))
+		bodyText := string(respBody)
+		slog.Error("openai proposal response status failed",
+			"status", resp.StatusCode,
+			"duration", time.Since(started).String(),
+			"body", truncateLogValue(bodyText),
+		)
+		return Plan{}, fmt.Errorf("openai response status %d: %s", resp.StatusCode, truncateLogValue(bodyText))
 	}
 
 	text, err := responseText(respBody)
 	if err != nil {
+		slog.Error("openai proposal response parse failed",
+			"status", resp.StatusCode,
+			"duration", time.Since(started).String(),
+			"body", truncateLogValue(string(respBody)),
+			"err", err,
+		)
 		return Plan{}, err
 	}
+	slog.Debug("openai proposal response content", "response", truncateLogValue(text))
+
 	var plan Plan
 	if err := json.Unmarshal([]byte(text), &plan); err != nil {
+		slog.Error("openai proposal json decode failed", "duration", time.Since(started).String(), "err", err)
 		return Plan{}, fmt.Errorf("decode ai proposal: %w", err)
 	}
 	if plan.Summary == "" {
+		slog.Error("openai proposal validation failed", "duration", time.Since(started).String(), "err", "empty summary")
 		return Plan{}, fmt.Errorf("ai proposal summary is empty")
 	}
+	slog.Info("openai proposal request completed",
+		"model", c.model,
+		"duration", time.Since(started).String(),
+		"projectChanges", len(plan.Projects),
+		"stageChanges", len(plan.Stages),
+		"todoChanges", len(plan.Todos),
+		"summary", truncateLogValue(plan.Summary),
+	)
 	return plan, nil
+}
+
+func collectionLen(value any) int {
+	if value == nil {
+		return 0
+	}
+	v := reflect.ValueOf(value)
+	if v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface {
+		if v.IsNil() {
+			return 0
+		}
+		v = v.Elem()
+	}
+	switch v.Kind() {
+	case reflect.Array, reflect.Slice, reflect.Map:
+		return v.Len()
+	default:
+		return 0
+	}
+}
+
+func jsonForLog(value any) string {
+	body, err := json.Marshal(value)
+	if err != nil {
+		return fmt.Sprintf("<json encode failed: %v>", err)
+	}
+	return truncateLogValue(string(body))
+}
+
+func truncateLogValue(value string) string {
+	runes := []rune(value)
+	if len(runes) <= logPayloadLimit {
+		return value
+	}
+	return string(runes[:logPayloadLimit]) + "...(truncated)"
 }
 
 func responseText(body []byte) (string, error) {

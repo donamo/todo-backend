@@ -63,6 +63,37 @@ func (q *Queries) DeleteEpic(ctx context.Context, arg DeleteEpicParams) error {
 	return err
 }
 
+const deleteProjectsByEpic = `-- name: DeleteProjectsByEpic :exec
+DELETE FROM projects
+WHERE epic_id = $1 AND user_id = $2
+`
+
+type DeleteProjectsByEpicParams struct {
+	EpicID uuid.NullUUID `json:"epic_id"`
+	UserID uuid.UUID     `json:"user_id"`
+}
+
+func (q *Queries) DeleteProjectsByEpic(ctx context.Context, arg DeleteProjectsByEpicParams) error {
+	_, err := q.db.ExecContext(ctx, deleteProjectsByEpic, arg.EpicID, arg.UserID)
+	return err
+}
+
+const detachProjectsFromEpic = `-- name: DetachProjectsFromEpic :exec
+UPDATE projects
+SET epic_id = NULL, updated_at = now()
+WHERE epic_id = $1 AND user_id = $2
+`
+
+type DetachProjectsFromEpicParams struct {
+	EpicID uuid.NullUUID `json:"epic_id"`
+	UserID uuid.UUID     `json:"user_id"`
+}
+
+func (q *Queries) DetachProjectsFromEpic(ctx context.Context, arg DetachProjectsFromEpicParams) error {
+	_, err := q.db.ExecContext(ctx, detachProjectsFromEpic, arg.EpicID, arg.UserID)
+	return err
+}
+
 const getEpic = `-- name: GetEpic :one
 SELECT id, user_id, name, description, color, position, created_at, updated_at
 FROM epics

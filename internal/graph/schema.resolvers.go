@@ -17,6 +17,26 @@ import (
 	"github.com/google/uuid"
 )
 
+// UpdateUser is the resolver for the updateUser field.
+func (r *mutationResolver) UpdateUser(ctx context.Context, id string, input model.UpdateUserInput) (*model.User, error) {
+	q, err := r.requireAdminQueries(ctx)
+	if err != nil {
+		return nil, err
+	}
+	userID, err := parseUUID(id)
+	if err != nil {
+		return nil, err
+	}
+	user, err := q.UpdateUser(ctx, dbsqlc.UpdateUserParams{
+		ID:       userID,
+		Approved: nullBool(input.Approved),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return toUser(user), nil
+}
+
 // CreateEpic is the resolver for the createEpic field.
 func (r *mutationResolver) CreateEpic(ctx context.Context, input model.CreateEpicInput) (*model.Epic, error) {
 	q, userID, err := r.requireUserQueries(ctx)
@@ -61,7 +81,7 @@ func (r *mutationResolver) UpdateEpic(ctx context.Context, id string, input mode
 }
 
 // DeleteEpic is the resolver for the deleteEpic field.
-func (r *mutationResolver) DeleteEpic(ctx context.Context, id string) (bool, error) {
+func (r *mutationResolver) DeleteEpic(ctx context.Context, id string, keepChildren *bool) (bool, error) {
 	q, userID, err := r.requireUserQueries(ctx)
 	if err != nil {
 		return false, err
@@ -70,7 +90,30 @@ func (r *mutationResolver) DeleteEpic(ctx context.Context, id string) (bool, err
 	if err != nil {
 		return false, err
 	}
-	return true, q.DeleteEpic(ctx, dbsqlc.DeleteEpicParams{ID: epicID, UserID: userID})
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+
+	tq := q.WithTx(tx)
+	epicRef := uuid.NullUUID{UUID: epicID, Valid: true}
+	if boolValue(keepChildren, true) {
+		if err := tq.DetachProjectsFromEpic(ctx, dbsqlc.DetachProjectsFromEpicParams{EpicID: epicRef, UserID: userID}); err != nil {
+			return false, err
+		}
+	} else {
+		if err := tq.DeleteProjectsByEpic(ctx, dbsqlc.DeleteProjectsByEpicParams{EpicID: epicRef, UserID: userID}); err != nil {
+			return false, err
+		}
+	}
+	if err := tq.DeleteEpic(ctx, dbsqlc.DeleteEpicParams{ID: epicID, UserID: userID}); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // CreateProject is the resolver for the createProject field.
@@ -131,7 +174,7 @@ func (r *mutationResolver) UpdateProject(ctx context.Context, id string, input m
 }
 
 // DeleteProject is the resolver for the deleteProject field.
-func (r *mutationResolver) DeleteProject(ctx context.Context, id string) (bool, error) {
+func (r *mutationResolver) DeleteProject(ctx context.Context, id string, keepChildren *bool) (bool, error) {
 	q, userID, err := r.requireUserQueries(ctx)
 	if err != nil {
 		return false, err
@@ -140,7 +183,29 @@ func (r *mutationResolver) DeleteProject(ctx context.Context, id string) (bool, 
 	if err != nil {
 		return false, err
 	}
-	return true, q.DeleteProject(ctx, dbsqlc.DeleteProjectParams{ID: projectID, UserID: userID})
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+
+	tq := q.WithTx(tx)
+	if boolValue(keepChildren, false) {
+		projectRef := uuid.NullUUID{UUID: projectID, Valid: true}
+		if err := tq.DetachTodosFromProject(ctx, dbsqlc.DetachTodosFromProjectParams{ProjectID: projectRef, UserID: userID}); err != nil {
+			return false, err
+		}
+		if err := tq.DetachStagesFromProject(ctx, dbsqlc.DetachStagesFromProjectParams{ProjectID: projectRef, UserID: userID}); err != nil {
+			return false, err
+		}
+	}
+	if err := tq.DeleteProject(ctx, dbsqlc.DeleteProjectParams{ID: projectID, UserID: userID}); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // CreateStage is the resolver for the createStage field.
@@ -155,7 +220,7 @@ func (r *mutationResolver) CreateStage(ctx context.Context, input model.CreateSt
 	}
 	stage, err := q.CreateStage(ctx, dbsqlc.CreateStageParams{
 		UserID:      userID,
-		ProjectID:   projectID,
+		ProjectID:   uuid.NullUUID{UUID: projectID, Valid: true},
 		Name:        input.Name,
 		Description: nullString(input.Description),
 		Status:      optionalStageStatus(input.Status),
@@ -196,7 +261,7 @@ func (r *mutationResolver) UpdateStage(ctx context.Context, id string, input mod
 }
 
 // DeleteStage is the resolver for the deleteStage field.
-func (r *mutationResolver) DeleteStage(ctx context.Context, id string) (bool, error) {
+func (r *mutationResolver) DeleteStage(ctx context.Context, id string, keepChildren *bool) (bool, error) {
 	q, userID, err := r.requireUserQueries(ctx)
 	if err != nil {
 		return false, err
@@ -205,7 +270,30 @@ func (r *mutationResolver) DeleteStage(ctx context.Context, id string) (bool, er
 	if err != nil {
 		return false, err
 	}
-	return true, q.DeleteStage(ctx, dbsqlc.DeleteStageParams{ID: stageID, UserID: userID})
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+
+	tq := q.WithTx(tx)
+	stageRef := uuid.NullUUID{UUID: stageID, Valid: true}
+	if boolValue(keepChildren, true) {
+		if err := tq.DetachTodosFromStage(ctx, dbsqlc.DetachTodosFromStageParams{StageID: stageRef, UserID: userID}); err != nil {
+			return false, err
+		}
+	} else {
+		if err := tq.DeleteTodosByStage(ctx, dbsqlc.DeleteTodosByStageParams{StageID: stageRef, UserID: userID}); err != nil {
+			return false, err
+		}
+	}
+	if err := tq.DeleteStage(ctx, dbsqlc.DeleteStageParams{ID: stageID, UserID: userID}); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // CreateTodo is the resolver for the createTodo field.
@@ -595,6 +683,40 @@ func (r *mutationResolver) AcceptAIProposal(ctx context.Context, id string) (*mo
 	return toAIProposal(applied), nil
 }
 
+// Users is the resolver for the users field.
+func (r *queryResolver) Users(ctx context.Context) ([]*model.User, error) {
+	q, err := r.requireAdminQueries(ctx)
+	if err != nil {
+		return nil, err
+	}
+	users, err := q.ListUsers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]*model.User, 0, len(users))
+	for _, user := range users {
+		result = append(result, toUser(user))
+	}
+	return result, nil
+}
+
+// User is the resolver for the user field.
+func (r *queryResolver) User(ctx context.Context, id string) (*model.User, error) {
+	q, err := r.requireAdminQueries(ctx)
+	if err != nil {
+		return nil, err
+	}
+	userID, err := parseUUID(id)
+	if err != nil {
+		return nil, err
+	}
+	user, err := q.GetUserByID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	return toUser(user), nil
+}
+
 // Epics is the resolver for the epics field.
 func (r *queryResolver) Epics(ctx context.Context) ([]*model.Epic, error) {
 	q, userID, err := r.requireUserQueries(ctx)
@@ -674,14 +796,18 @@ func (r *queryResolver) Project(ctx context.Context, id string) (*model.Project,
 }
 
 // Stages is the resolver for the stages field.
-func (r *queryResolver) Stages(ctx context.Context, projectID string) ([]*model.Stage, error) {
+func (r *queryResolver) Stages(ctx context.Context, projectID *string) ([]*model.Stage, error) {
 	q, userID, err := r.requireUserQueries(ctx)
 	if err != nil {
 		return nil, err
 	}
-	pID, err := parseUUID(projectID)
-	if err != nil {
-		return nil, err
+	pID := uuid.NullUUID{}
+	if projectID != nil {
+		parsed, err := parseUUID(*projectID)
+		if err != nil {
+			return nil, err
+		}
+		pID = uuid.NullUUID{UUID: parsed, Valid: true}
 	}
 	stages, err := q.ListStages(ctx, dbsqlc.ListStagesParams{ProjectID: pID, UserID: userID})
 	if err != nil {

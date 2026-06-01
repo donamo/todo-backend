@@ -33,6 +33,16 @@ RETURNING id, user_id, epic_id, name, description, status, start_date, target_da
 DELETE FROM projects
 WHERE id = $1 AND user_id = $2;
 
+-- name: DetachStagesFromProject :exec
+UPDATE stages
+SET project_id = NULL, updated_at = now()
+WHERE project_id = $1 AND user_id = $2;
+
+-- name: DetachTodosFromProject :exec
+UPDATE todos
+SET project_id = NULL, updated_at = now()
+WHERE project_id = $1 AND user_id = $2;
+
 -- name: ProjectProgress :one
 SELECT
     COUNT(*)::int AS total,

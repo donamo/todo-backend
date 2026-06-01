@@ -186,6 +186,20 @@ func createTestUser(t *testing.T, db *sql.DB) uuid.UUID {
 	return id
 }
 
+func createPendingUser(t *testing.T, db *sql.DB) uuid.UUID {
+	t.Helper()
+	var id uuid.UUID
+	err := db.QueryRow(`
+		INSERT INTO users (google_subject, email, name, approved)
+		VALUES ('pending-user', 'pending@example.com', 'Pending User', false)
+		RETURNING id
+	`).Scan(&id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
 func loginCookie(t *testing.T, userID uuid.UUID) *http.Cookie {
 	t.Helper()
 	store := sessions.NewCookieStore([]byte(testSessionSecret))

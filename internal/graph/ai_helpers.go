@@ -44,7 +44,7 @@ func (r *Resolver) aiContext(ctx context.Context, q *dbsqlc.Queries, userID uuid
 		if err != nil {
 			return snapshot, err
 		}
-		stages, err := q.ListStages(ctx, dbsqlc.ListStagesParams{ProjectID: parentID, UserID: userID})
+		stages, err := q.ListStages(ctx, dbsqlc.ListStagesParams{ProjectID: uuid.NullUUID{UUID: parentID, Valid: true}, UserID: userID})
 		if err != nil {
 			return snapshot, err
 		}
@@ -69,7 +69,7 @@ func childrenForProjects(ctx context.Context, q *dbsqlc.Queries, userID uuid.UUI
 	var stages []dbsqlc.Stage
 	var todos []dbsqlc.Todo
 	for _, project := range projects {
-		projectStages, err := q.ListStages(ctx, dbsqlc.ListStagesParams{ProjectID: project.ID, UserID: userID})
+		projectStages, err := q.ListStages(ctx, dbsqlc.ListStagesParams{ProjectID: uuid.NullUUID{UUID: project.ID, Valid: true}, UserID: userID})
 		if err != nil {
 			return nil, nil, err
 		}
@@ -160,9 +160,12 @@ func (r *Resolver) applyAIPlan(ctx context.Context, q *dbsqlc.Queries, userID uu
 		if err != nil {
 			return err
 		}
+		if err := validateAIProject(ctx, q, userID, projectID); err != nil {
+			return err
+		}
 		stage, err := q.CreateStage(ctx, dbsqlc.CreateStageParams{
 			UserID:      userID,
-			ProjectID:   projectID,
+			ProjectID:   uuid.NullUUID{UUID: projectID, Valid: true},
 			Name:        requiredName(change.Name, "AI stage"),
 			Description: nullString(change.Description),
 			Status:      optionalStringPtr(change.Status),
@@ -224,6 +227,12 @@ func (r *Resolver) applyAIPlan(ctx context.Context, q *dbsqlc.Queries, userID uu
 		if err != nil {
 			return err
 		}
+		if err := validateAIProject(ctx, q, userID, projectID); err != nil {
+			return err
+		}
+		if err := validateAIStage(ctx, q, userID, stageID, projectID); err != nil {
+			return err
+		}
 		if boolPtrTrue(change.NextAction) {
 			if err := q.ClearProjectNextActions(ctx, dbsqlc.ClearProjectNextActionsParams{UserID: userID, ProjectID: uuid.NullUUID{UUID: projectID, Valid: true}, ID: uuid.Nil}); err != nil {
 				return err
@@ -253,9 +262,33 @@ func (r *Resolver) applyAIPlan(ctx context.Context, q *dbsqlc.Queries, userID uu
 	return nil
 }
 
+func validateAIProject(ctx context.Context, q *dbsqlc.Queries, userID uuid.UUID, projectID uuid.UUID) error {
+	if _, err := q.GetProject(ctx, dbsqlc.GetProjectParams{ID: projectID, UserID: userID}); err != nil {
+		return fmt.Errorf("ai proposal references unavailable project %s: %w", projectID, err)
+	}
+	return nil
+}
+
+func validateAIStage(ctx context.Context, q *dbsqlc.Queries, userID uuid.UUID, stageID uuid.NullUUID, projectID uuid.UUID) error {
+	if !stageID.Valid {
+		return nil
+	}
+	stage, err := q.GetStage(ctx, dbsqlc.GetStageParams{ID: stageID.UUID, UserID: userID})
+	if err != nil {
+		return fmt.Errorf("ai proposal references unavailable stage %s: %w", stageID.UUID, err)
+	}
+	if !stage.ProjectID.Valid {
+		return fmt.Errorf("ai proposal references stage %s under project %s, but stage has no project", stageID.UUID, projectID)
+	}
+	if stage.ProjectID.UUID != projectID {
+		return fmt.Errorf("ai proposal references stage %s under project %s, but stage belongs to project %s", stageID.UUID, projectID, stage.ProjectID.UUID)
+	}
+	return nil
+}
+
 func stageProjectID(change ai.StageChange, proposal dbsqlc.AiProposal, projectIDs map[string]uuid.UUID) (uuid.UUID, error) {
-	if change.ProjectID != "" {
-		return parseUUID(change.ProjectID)
+	if proposal.ParentType == model.AIProposalParentTypeProject.String() {
+		return proposal.ParentID, nil
 	}
 	if change.ProjectTempID != "" {
 		if id, ok := projectIDs[change.ProjectTempID]; ok {
@@ -263,15 +296,15 @@ func stageProjectID(change ai.StageChange, proposal dbsqlc.AiProposal, projectID
 		}
 		return uuid.UUID{}, fmt.Errorf("unknown project temp id %q", change.ProjectTempID)
 	}
-	if proposal.ParentType == model.AIProposalParentTypeProject.String() {
-		return proposal.ParentID, nil
+	if change.ProjectID != "" {
+		return parseUUID(change.ProjectID)
 	}
 	return uuid.UUID{}, fmt.Errorf("stage project is missing")
 }
 
 func todoProjectID(change ai.TodoChange, proposal dbsqlc.AiProposal, projectIDs map[string]uuid.UUID) (uuid.UUID, error) {
-	if change.ProjectID != "" {
-		return parseUUID(change.ProjectID)
+	if proposal.ParentType == model.AIProposalParentTypeProject.String() {
+		return proposal.ParentID, nil
 	}
 	if change.ProjectTempID != "" {
 		if id, ok := projectIDs[change.ProjectTempID]; ok {
@@ -279,22 +312,22 @@ func todoProjectID(change ai.TodoChange, proposal dbsqlc.AiProposal, projectIDs 
 		}
 		return uuid.UUID{}, fmt.Errorf("unknown project temp id %q", change.ProjectTempID)
 	}
-	if proposal.ParentType == model.AIProposalParentTypeProject.String() {
-		return proposal.ParentID, nil
+	if change.ProjectID != "" {
+		return parseUUID(change.ProjectID)
 	}
 	return uuid.UUID{}, fmt.Errorf("todo project is missing")
 }
 
 func todoStageID(change ai.TodoChange, stageIDs map[string]uuid.UUID) (uuid.NullUUID, error) {
-	if change.StageID != "" {
-		id, err := parseUUID(change.StageID)
-		return uuid.NullUUID{UUID: id, Valid: err == nil}, err
-	}
 	if change.StageTempID != "" {
 		if id, ok := stageIDs[change.StageTempID]; ok {
 			return uuid.NullUUID{UUID: id, Valid: true}, nil
 		}
 		return uuid.NullUUID{}, fmt.Errorf("unknown stage temp id %q", change.StageTempID)
+	}
+	if change.StageID != "" {
+		id, err := parseUUID(change.StageID)
+		return uuid.NullUUID{UUID: id, Valid: err == nil}, err
 	}
 	return uuid.NullUUID{}, nil
 }

@@ -152,7 +152,7 @@ type Query struct {
 
 type Stage struct {
 	ID          string      `json:"id"`
-	ProjectID   string      `json:"projectId"`
+	ProjectID   *string     `json:"projectId,omitempty"`
 	Name        string      `json:"name"`
 	Description *string     `json:"description,omitempty"`
 	Status      StageStatus `json:"status"`
@@ -247,6 +247,20 @@ type UpdateTodoInput struct {
 	NextAction      *bool         `json:"nextAction,omitempty"`
 	Milestone       *bool         `json:"milestone,omitempty"`
 	Recurrence      *Recurrence   `json:"recurrence,omitempty"`
+}
+
+type UpdateUserInput struct {
+	Approved *bool `json:"approved,omitempty"`
+}
+
+type User struct {
+	ID        string    `json:"id"`
+	Email     string    `json:"email"`
+	Name      string    `json:"name"`
+	Approved  bool      `json:"approved"`
+	IsAdmin   bool      `json:"isAdmin"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 type AIProposalParentType string

@@ -25,7 +25,7 @@ type Project {
 
 type Stage {
   id: ID!
-  projectId: ID!
+  projectId: ID
   name: String!
   description: String
   status: StageStatus!
@@ -108,6 +108,16 @@ type AIProposal {
   status: AIProposalStatus!
   createdAt: Time!
   appliedAt: Time
+}
+
+type User {
+  id: ID!
+  email: String!
+  name: String!
+  approved: Boolean!
+  isAdmin: Boolean!
+  createdAt: Time!
+  updatedAt: Time!
 }
 
 enum AIProposalParentType {
@@ -278,12 +288,18 @@ input AIProposalFilter {
   parentId: ID
 }
 
+input UpdateUserInput {
+  approved: Boolean
+}
+
 type Query {
+  users: [User!]!
+  user(id: ID!): User
   epics: [Epic!]!
   epic(id: ID!): Epic
   projects(epicId: ID): [Project!]!
   project(id: ID!): Project
-  stages(projectId: ID!): [Stage!]!
+  stages(projectId: ID): [Stage!]!
   stage(id: ID!): Stage
   todos(filter: TodoFilter): [Todo!]!
   todo(id: ID!): Todo
@@ -304,17 +320,19 @@ type Query {
 }
 
 type Mutation {
+  updateUser(id: ID!, input: UpdateUserInput!): User!
+
   createEpic(input: CreateEpicInput!): Epic!
   updateEpic(id: ID!, input: UpdateEpicInput!): Epic!
-  deleteEpic(id: ID!): Boolean!
+  deleteEpic(id: ID!, keepChildren: Boolean = true): Boolean!
 
   createProject(input: CreateProjectInput!): Project!
   updateProject(id: ID!, input: UpdateProjectInput!): Project!
-  deleteProject(id: ID!): Boolean!
+  deleteProject(id: ID!, keepChildren: Boolean = false): Boolean!
 
   createStage(input: CreateStageInput!): Stage!
   updateStage(id: ID!, input: UpdateStageInput!): Stage!
-  deleteStage(id: ID!): Boolean!
+  deleteStage(id: ID!, keepChildren: Boolean = true): Boolean!
 
   createTodo(input: CreateTodoInput!): Todo!
   updateTodo(id: ID!, input: UpdateTodoInput!): Todo!

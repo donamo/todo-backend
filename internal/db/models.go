@@ -71,7 +71,7 @@ type ProjectNote struct {
 type Stage struct {
 	ID          uuid.UUID      `json:"id"`
 	UserID      uuid.UUID      `json:"user_id"`
-	ProjectID   uuid.UUID      `json:"project_id"`
+	ProjectID   uuid.NullUUID  `json:"project_id"`
 	Name        string         `json:"name"`
 	Description sql.NullString `json:"description"`
 	Status      string         `json:"status"`

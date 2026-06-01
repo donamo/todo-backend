@@ -72,6 +72,38 @@ func (q *Queries) DeleteProject(ctx context.Context, arg DeleteProjectParams) er
 	return err
 }
 
+const detachStagesFromProject = `-- name: DetachStagesFromProject :exec
+UPDATE stages
+SET project_id = NULL, updated_at = now()
+WHERE project_id = $1 AND user_id = $2
+`
+
+type DetachStagesFromProjectParams struct {
+	ProjectID uuid.NullUUID `json:"project_id"`
+	UserID    uuid.UUID     `json:"user_id"`
+}
+
+func (q *Queries) DetachStagesFromProject(ctx context.Context, arg DetachStagesFromProjectParams) error {
+	_, err := q.db.ExecContext(ctx, detachStagesFromProject, arg.ProjectID, arg.UserID)
+	return err
+}
+
+const detachTodosFromProject = `-- name: DetachTodosFromProject :exec
+UPDATE todos
+SET project_id = NULL, updated_at = now()
+WHERE project_id = $1 AND user_id = $2
+`
+
+type DetachTodosFromProjectParams struct {
+	ProjectID uuid.NullUUID `json:"project_id"`
+	UserID    uuid.UUID     `json:"user_id"`
+}
+
+func (q *Queries) DetachTodosFromProject(ctx context.Context, arg DetachTodosFromProjectParams) error {
+	_, err := q.db.ExecContext(ctx, detachTodosFromProject, arg.ProjectID, arg.UserID)
+	return err
+}
+
 const getProject = `-- name: GetProject :one
 SELECT id, user_id, epic_id, name, description, status, start_date, target_date, position, created_at, updated_at
 FROM projects

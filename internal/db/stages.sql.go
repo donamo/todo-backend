@@ -20,7 +20,7 @@ RETURNING id, user_id, project_id, name, description, status, start_date, target
 
 type CreateStageParams struct {
 	UserID      uuid.UUID      `json:"user_id"`
-	ProjectID   uuid.UUID      `json:"project_id"`
+	ProjectID   uuid.NullUUID  `json:"project_id"`
 	Name        string         `json:"name"`
 	Description sql.NullString `json:"description"`
 	Status      interface{}    `json:"status"`
@@ -72,6 +72,37 @@ func (q *Queries) DeleteStage(ctx context.Context, arg DeleteStageParams) error 
 	return err
 }
 
+const deleteTodosByStage = `-- name: DeleteTodosByStage :exec
+DELETE FROM todos
+WHERE stage_id = $1 AND user_id = $2
+`
+
+type DeleteTodosByStageParams struct {
+	StageID uuid.NullUUID `json:"stage_id"`
+	UserID  uuid.UUID     `json:"user_id"`
+}
+
+func (q *Queries) DeleteTodosByStage(ctx context.Context, arg DeleteTodosByStageParams) error {
+	_, err := q.db.ExecContext(ctx, deleteTodosByStage, arg.StageID, arg.UserID)
+	return err
+}
+
+const detachTodosFromStage = `-- name: DetachTodosFromStage :exec
+UPDATE todos
+SET stage_id = NULL, updated_at = now()
+WHERE stage_id = $1 AND user_id = $2
+`
+
+type DetachTodosFromStageParams struct {
+	StageID uuid.NullUUID `json:"stage_id"`
+	UserID  uuid.UUID     `json:"user_id"`
+}
+
+func (q *Queries) DetachTodosFromStage(ctx context.Context, arg DetachTodosFromStageParams) error {
+	_, err := q.db.ExecContext(ctx, detachTodosFromStage, arg.StageID, arg.UserID)
+	return err
+}
+
 const getStage = `-- name: GetStage :one
 SELECT id, user_id, project_id, name, description, status, start_date, target_date, position, created_at, updated_at
 FROM stages
@@ -105,17 +136,18 @@ func (q *Queries) GetStage(ctx context.Context, arg GetStageParams) (Stage, erro
 const listStages = `-- name: ListStages :many
 SELECT id, user_id, project_id, name, description, status, start_date, target_date, position, created_at, updated_at
 FROM stages
-WHERE project_id = $1 AND user_id = $2
+WHERE user_id = $1
+  AND ($2::uuid IS NULL OR project_id = $2::uuid)
 ORDER BY position, created_at
 `
 
 type ListStagesParams struct {
-	ProjectID uuid.UUID `json:"project_id"`
-	UserID    uuid.UUID `json:"user_id"`
+	UserID    uuid.UUID     `json:"user_id"`
+	ProjectID uuid.NullUUID `json:"project_id"`
 }
 
 func (q *Queries) ListStages(ctx context.Context, arg ListStagesParams) ([]Stage, error) {
-	rows, err := q.db.QueryContext(ctx, listStages, arg.ProjectID, arg.UserID)
+	rows, err := q.db.QueryContext(ctx, listStages, arg.UserID, arg.ProjectID)
 	if err != nil {
 		return nil, err
 	}

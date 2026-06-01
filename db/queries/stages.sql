@@ -1,7 +1,8 @@
 -- name: ListStages :many
 SELECT id, user_id, project_id, name, description, status, start_date, target_date, position, created_at, updated_at
 FROM stages
-WHERE project_id = $1 AND user_id = $2
+WHERE user_id = sqlc.arg('user_id')
+  AND (sqlc.narg('project_id')::uuid IS NULL OR project_id = sqlc.narg('project_id')::uuid)
 ORDER BY position, created_at;
 
 -- name: GetStage :one
@@ -30,6 +31,15 @@ RETURNING id, user_id, project_id, name, description, status, start_date, target
 -- name: DeleteStage :exec
 DELETE FROM stages
 WHERE id = $1 AND user_id = $2;
+
+-- name: DetachTodosFromStage :exec
+UPDATE todos
+SET stage_id = NULL, updated_at = now()
+WHERE stage_id = $1 AND user_id = $2;
+
+-- name: DeleteTodosByStage :exec
+DELETE FROM todos
+WHERE stage_id = $1 AND user_id = $2;
 
 -- name: StageProgress :one
 SELECT

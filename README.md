@@ -43,6 +43,14 @@ Implemented through GraphQL:
 - Todo labels
 - Todo dependencies
 - Next action uniqueness per project
+- Admin-only user approval:
+  - `users`
+  - `user(id)`
+  - `updateUser(id, input: { approved })`
+- Hierarchy deletion with optional child detaching:
+  - `deleteEpic(id, keepChildren: true)` keeps projects with `epicId: null`
+  - `deleteProject(id, keepChildren: true)` keeps stages/todos with `projectId: null`
+  - `deleteStage(id, keepChildren: true)` keeps todos with `stageId: null`
 - AI magic text proposal generation and explicit proposal acceptance
 
 `aiStatusReport` is available as an explicit stub and returns `ready: false` until AI provider configuration is added.
@@ -93,3 +101,9 @@ ghcr.io/<owner>/<repo>:v1.0.0
 ```
 
 The GitHub Actions workflow intentionally skips tests and multi-arch builds to keep CI runtime low.
+
+## AI Logging
+
+OpenAI proposal calls log lifecycle events at `INFO` level: model, parent, context counts, duration, and proposal change counts.
+
+The magic text, compact parent context, and AI response are logged at `DEBUG` level with a 4000 character limit per field. Set `LOG_LEVEL=DEBUG` when you need to inspect request and response content.

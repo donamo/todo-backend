@@ -28,3 +28,12 @@ RETURNING id, user_id, name, description, color, position, created_at, updated_a
 -- name: DeleteEpic :exec
 DELETE FROM epics
 WHERE id = $1 AND user_id = $2;
+
+-- name: DetachProjectsFromEpic :exec
+UPDATE projects
+SET epic_id = NULL, updated_at = now()
+WHERE epic_id = $1 AND user_id = $2;
+
+-- name: DeleteProjectsByEpic :exec
+DELETE FROM projects
+WHERE epic_id = $1 AND user_id = $2;

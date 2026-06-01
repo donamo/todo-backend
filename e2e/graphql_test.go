@@ -22,6 +22,100 @@ func TestGraphQLRequiresAuth(t *testing.T) {
 	}
 }
 
+func TestAdminCanListAndApproveUsers(t *testing.T) {
+	t.Setenv("ADMIN_EMAIL", "e2e@example.com")
+	s := NewSuite(t)
+
+	pendingID := createPendingUser(t, s.DB)
+
+	var list gqlResponse[struct {
+		Users []struct {
+			ID       string `json:"id"`
+			Email    string `json:"email"`
+			Approved bool   `json:"approved"`
+			IsAdmin  bool   `json:"isAdmin"`
+		} `json:"users"`
+	}]
+	s.GQL(t, `
+		query Users {
+			users { id email approved isAdmin }
+		}
+	`, nil, &list)
+	if len(list.Errors) > 0 {
+		t.Fatalf("users errors: %+v", list.Errors)
+	}
+	foundPending := false
+	foundAdmin := false
+	for _, user := range list.Data.Users {
+		if user.ID == pendingID.String() {
+			foundPending = true
+			if user.Approved {
+				t.Fatal("pending user should not start approved")
+			}
+		}
+		if user.Email == "e2e@example.com" && user.IsAdmin {
+			foundAdmin = true
+		}
+	}
+	if !foundPending || !foundAdmin {
+		t.Fatalf("users = %+v", list.Data.Users)
+	}
+
+	var update gqlResponse[struct {
+		UpdateUser struct {
+			ID       string `json:"id"`
+			Approved bool   `json:"approved"`
+		} `json:"updateUser"`
+	}]
+	s.GQL(t, `
+		mutation Approve($id: ID!) {
+			updateUser(id: $id, input: { approved: true }) { id approved }
+		}
+	`, map[string]any{"id": pendingID.String()}, &update)
+	if len(update.Errors) > 0 {
+		t.Fatalf("updateUser errors: %+v", update.Errors)
+	}
+	if update.Data.UpdateUser.ID != pendingID.String() || !update.Data.UpdateUser.Approved {
+		t.Fatalf("updated user = %+v", update.Data.UpdateUser)
+	}
+
+	var get gqlResponse[struct {
+		User struct {
+			ID       string `json:"id"`
+			Approved bool   `json:"approved"`
+		} `json:"user"`
+	}]
+	s.GQL(t, `
+		query User($id: ID!) {
+			user(id: $id) { id approved }
+		}
+	`, map[string]any{"id": pendingID.String()}, &get)
+	if len(get.Errors) > 0 {
+		t.Fatalf("user errors: %+v", get.Errors)
+	}
+	if get.Data.User.ID != pendingID.String() || !get.Data.User.Approved {
+		t.Fatalf("user = %+v", get.Data.User)
+	}
+}
+
+func TestNonAdminCannotListUsers(t *testing.T) {
+	s := NewSuite(t)
+
+	var list gqlResponse[struct {
+		Users []struct {
+			ID string `json:"id"`
+		} `json:"users"`
+	}]
+	s.GQL(t, `
+		query Users {
+			users { id }
+		}
+	`, nil, &list)
+	if len(list.Errors) == 0 {
+		t.Fatal("expected users query to fail for non-admin")
+	}
+}
+
 func TestAIProposalWorkflowWithMockOpenAI(t *testing.T) {
 	mockOpenAI := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/responses" {
@@ -39,14 +133,17 @@ func TestAIProposalWorkflowWithMockOpenAI(t *testing.T) {
 			"projects": []any{},
 			"stages": []any{
 				map[string]any{
-					"action": "CREATE",
-					"tempId": "stage-1",
-					"name":   "Tervezés",
+					"action":    "CREATE",
+					"projectId": "b1b7f2c6-4cf3-46cb-9d1a-3a2b4d2c9a11",
+					"tempId":    "stage-1",
+					"name":      "Tervezés",
 				},
 			},
 			"todos": []any{
 				map[string]any{
 					"action":      "CREATE",
+					"projectId":   "b1b7f2c6-4cf3-46cb-9d1a-3a2b4d2c9a11",
+					"stageId":     "b1b7f2c6-4cf3-46cb-9d1a-3a2b4d2c9a11",
 					"stageTempId": "stage-1",
 					"title":       "Specifikáció pontosítása",
 					"priority":    "HIGH",
@@ -196,6 +293,168 @@ func TestAIProposalWorkflowWithMockOpenAI(t *testing.T) {
 	}
 	if nextActions != 1 || !foundGenerated {
 		t.Fatalf("todos = %+v", query.Data.Todos)
+	}
+}
+
+func TestDeleteHierarchyCanKeepChildren(t *testing.T) {
+	s := NewSuite(t)
+
+	var createEpic gqlResponse[struct {
+		CreateEpic struct {
+			ID string `json:"id"`
+		} `json:"createEpic"`
+	}]
+	s.GQL(t, `
+		mutation CreateEpic($input: CreateEpicInput!) {
+			createEpic(input: $input) { id }
+		}
+	`, map[string]any{"input": map[string]any{"name": "Detach Epic"}}, &createEpic)
+	if len(createEpic.Errors) > 0 {
+		t.Fatalf("createEpic errors: %+v", createEpic.Errors)
+	}
+
+	var createProject gqlResponse[struct {
+		CreateProject struct {
+			ID string `json:"id"`
+		} `json:"createProject"`
+	}]
+	s.GQL(t, `
+		mutation CreateProject($input: CreateProjectInput!) {
+			createProject(input: $input) { id }
+		}
+	`, map[string]any{"input": map[string]any{"epicId": createEpic.Data.CreateEpic.ID, "name": "Detach Project"}}, &createProject)
+	if len(createProject.Errors) > 0 {
+		t.Fatalf("createProject errors: %+v", createProject.Errors)
+	}
+	projectID := createProject.Data.CreateProject.ID
+
+	var deleteEpic gqlResponse[struct {
+		DeleteEpic bool `json:"deleteEpic"`
+	}]
+	s.GQL(t, `
+		mutation DeleteEpic($id: ID!) {
+			deleteEpic(id: $id, keepChildren: true)
+		}
+	`, map[string]any{"id": createEpic.Data.CreateEpic.ID}, &deleteEpic)
+	if len(deleteEpic.Errors) > 0 {
+		t.Fatalf("deleteEpic errors: %+v", deleteEpic.Errors)
+	}
+
+	var projectAfterEpicDelete gqlResponse[struct {
+		Project struct {
+			ID     string  `json:"id"`
+			EpicID *string `json:"epicId"`
+		} `json:"project"`
+	}]
+	s.GQL(t, `
+		query Project($id: ID!) {
+			project(id: $id) { id epicId }
+		}
+	`, map[string]any{"id": projectID}, &projectAfterEpicDelete)
+	if len(projectAfterEpicDelete.Errors) > 0 {
+		t.Fatalf("project after epic delete errors: %+v", projectAfterEpicDelete.Errors)
+	}
+	if projectAfterEpicDelete.Data.Project.EpicID != nil {
+		t.Fatalf("project epicId = %v, want nil", *projectAfterEpicDelete.Data.Project.EpicID)
+	}
+
+	var createStage gqlResponse[struct {
+		CreateStage struct {
+			ID string `json:"id"`
+		} `json:"createStage"`
+	}]
+	s.GQL(t, `
+		mutation CreateStage($input: CreateStageInput!) {
+			createStage(input: $input) { id }
+		}
+	`, map[string]any{"input": map[string]any{"projectId": projectID, "name": "Detach Stage"}}, &createStage)
+	if len(createStage.Errors) > 0 {
+		t.Fatalf("createStage errors: %+v", createStage.Errors)
+	}
+	stageID := createStage.Data.CreateStage.ID
+
+	var createTodo gqlResponse[struct {
+		CreateTodo struct {
+			ID string `json:"id"`
+		} `json:"createTodo"`
+	}]
+	s.GQL(t, `
+		mutation CreateTodo($input: CreateTodoInput!) {
+			createTodo(input: $input) { id }
+		}
+	`, map[string]any{"input": map[string]any{"projectId": projectID, "stageId": stageID, "title": "Detach Todo"}}, &createTodo)
+	if len(createTodo.Errors) > 0 {
+		t.Fatalf("createTodo errors: %+v", createTodo.Errors)
+	}
+	todoID := createTodo.Data.CreateTodo.ID
+
+	var deleteProject gqlResponse[struct {
+		DeleteProject bool `json:"deleteProject"`
+	}]
+	s.GQL(t, `
+		mutation DeleteProject($id: ID!) {
+			deleteProject(id: $id, keepChildren: true)
+		}
+	`, map[string]any{"id": projectID}, &deleteProject)
+	if len(deleteProject.Errors) > 0 {
+		t.Fatalf("deleteProject errors: %+v", deleteProject.Errors)
+	}
+
+	var detached gqlResponse[struct {
+		Stage struct {
+			ID        string  `json:"id"`
+			ProjectID *string `json:"projectId"`
+		} `json:"stage"`
+		Todo struct {
+			ID        string  `json:"id"`
+			ProjectID *string `json:"projectId"`
+			StageID   *string `json:"stageId"`
+		} `json:"todo"`
+	}]
+	s.GQL(t, `
+		query Detached($stageId: ID!, $todoId: ID!) {
+			stage(id: $stageId) { id projectId }
+			todo(id: $todoId) { id projectId stageId }
+		}
+	`, map[string]any{"stageId": stageID, "todoId": todoID}, &detached)
+	if len(detached.Errors) > 0 {
+		t.Fatalf("detached query errors: %+v", detached.Errors)
+	}
+	if detached.Data.Stage.ProjectID != nil {
+		t.Fatalf("stage projectId = %v, want nil", *detached.Data.Stage.ProjectID)
+	}
+	if detached.Data.Todo.ProjectID != nil || detached.Data.Todo.StageID == nil || *detached.Data.Todo.StageID != stageID {
+		t.Fatalf("detached todo = %+v", detached.Data.Todo)
+	}
+
+	var deleteStage gqlResponse[struct {
+		DeleteStage bool `json:"deleteStage"`
+	}]
+	s.GQL(t, `
+		mutation DeleteStage($id: ID!) {
+			deleteStage(id: $id, keepChildren: true)
+		}
+	`, map[string]any{"id": stageID}, &deleteStage)
+	if len(deleteStage.Errors) > 0 {
+		t.Fatalf("deleteStage errors: %+v", deleteStage.Errors)
+	}
+
+	var todoAfterStageDelete gqlResponse[struct {
+		Todo struct {
+			ID      string  `json:"id"`
+			StageID *string `json:"stageId"`
+		} `json:"todo"`
+	}]
+	s.GQL(t, `
+		query Todo($id: ID!) {
+			todo(id: $id) { id stageId }
+		}
+	`, map[string]any{"id": todoID}, &todoAfterStageDelete)
+	if len(todoAfterStageDelete.Errors) > 0 {
+		t.Fatalf("todo after stage delete errors: %+v", todoAfterStageDelete.Errors)
+	}
+	if todoAfterStageDelete.Data.Todo.StageID != nil {
+		t.Fatalf("todo stageId = %v, want nil", *todoAfterStageDelete.Data.Todo.StageID)
 	}
 }
 

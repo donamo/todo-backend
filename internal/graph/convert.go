@@ -6,9 +6,22 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/donamo/todo-backend/internal/auth"
 	dbsqlc "github.com/donamo/todo-backend/internal/db"
 	"github.com/donamo/todo-backend/internal/graph/model"
 )
+
+func toUser(user dbsqlc.User) *model.User {
+	return &model.User{
+		ID:        user.ID.String(),
+		Email:     user.Email,
+		Name:      user.Name,
+		Approved:  user.Approved,
+		IsAdmin:   auth.IsAdmin(user.Email),
+		CreatedAt: user.CreatedAt,
+		UpdatedAt: user.UpdatedAt,
+	}
+}
 
 func toEpic(epic dbsqlc.Epic) *model.Epic {
 	return &model.Epic{
@@ -40,7 +53,7 @@ func toProject(project dbsqlc.Project) *model.Project {
 func toStage(stage dbsqlc.Stage) *model.Stage {
 	return &model.Stage{
 		ID:          stage.ID.String(),
-		ProjectID:   stage.ProjectID.String(),
+		ProjectID:   nullUUIDPtr(stage.ProjectID),
 		Name:        stage.Name,
 		Description: nullStringPtr(stage.Description),
 		Status:      model.StageStatus(stage.Status),

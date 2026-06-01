@@ -3,12 +3,29 @@ package graph
 import (
 	"context"
 	"database/sql"
+	"errors"
 
 	"github.com/google/uuid"
 
+	"github.com/donamo/todo-backend/internal/auth"
 	dbsqlc "github.com/donamo/todo-backend/internal/db"
 	"github.com/donamo/todo-backend/internal/graph/model"
 )
+
+func (r *Resolver) requireAdminQueries(ctx context.Context) (*dbsqlc.Queries, error) {
+	q, err := r.requireQueries()
+	if err != nil {
+		return nil, err
+	}
+	user := auth.UserFromContext(ctx)
+	if user == nil {
+		return nil, errors.New("unauthorized")
+	}
+	if !auth.IsAdmin(user.Email) {
+		return nil, errors.New("forbidden")
+	}
+	return q, nil
+}
 
 func (r *Resolver) todoList(ctx context.Context, load func(*dbsqlc.Queries, uuid.UUID) ([]dbsqlc.Todo, error)) ([]*model.Todo, error) {
 	q, userID, err := r.requireUserQueries(ctx)
@@ -97,6 +114,13 @@ func optionalInt(value *int) any {
 func optionalBool(value *bool) any {
 	if value == nil {
 		return nil
+	}
+	return *value
+}
+
+func boolValue(value *bool, fallback bool) bool {
+	if value == nil {
+		return fallback
 	}
 	return *value
 }
